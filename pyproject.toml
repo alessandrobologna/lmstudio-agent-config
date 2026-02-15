@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lmstudio-agent-config"
+version = "0.1.0"
+description = "Generate and update agent config files from LM Studio models for VS Code Copilot, OpenCode, Pi, and Codex."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "requests",
+  "click",
+  "click-help-colors",
+  "json5",
+  "rich",
+  "tomli-w",
+  "tomli; python_version < '3.11'",
+]
+
+[project.scripts]
+lmstudio-agent-config = "lmstudio_agent_config.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/alessandrobologna/lmstudio-agent-config"
+Repository = "https://github.com/alessandrobologna/lmstudio-agent-config"
+Issues = "https://github.com/alessandrobologna/lmstudio-agent-config/issues"
+
+[tool.setuptools.packages.find]
+include = ["lmstudio_agent_config"]
