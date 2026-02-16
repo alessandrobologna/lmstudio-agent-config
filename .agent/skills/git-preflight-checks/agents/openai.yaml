@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Preflight Checks"
+  short_description: "Run CI-style checks before commit/push"
+  default_prompt: "Use $git-preflight-checks to run CI-style preflight checks before I push."

@@ -1,0 +1,170 @@
+name: publish-testpypi
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_target:
+        description: "Publish destination"
+        required: true
+        type: choice
+        default: testpypi
+        options:
+          - testpypi
+          - pypi
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels
+          path: dist/*.whl
+          if-no-files-found: error
+
+  upload:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: pypi
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: false
+
+      - name: Publish with uv (OIDC)
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo_url="https://test.pypi.org/legacy/"
+          check_url="https://test.pypi.org/simple"
+          if [ "${{ inputs.publish_target }}" = "pypi" ]; then
+            repo_url="https://upload.pypi.org/legacy/"
+            check_url="https://pypi.org/simple"
+          fi
+          uv publish \
+            --publish-url "$repo_url" \
+            --check-url "$check_url" \
+            dist/*
+
+      - name: Determine version
+        id: version
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+
+          with open("pyproject.toml", "rb") as fh:
+            data = tomllib.load(fh)
+          version = data["project"]["version"]
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+            fh.write(f"version={version}\n")
+          print(f"Detected version: {version}")
+          PY
+
+  qa-install:
+    needs: upload
+    if: ${{ inputs.publish_target == 'testpypi' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: false
+
+      - name: Install from TestPyPI (no build)
+        shell: bash
+        env:
+          VERSION: ${{ needs.upload.outputs.version }}
+        run: |
+          set -euo pipefail
+          echo "Testing install for lmstudio-agent-config==$VERSION on $RUNNER_OS"
+          for attempt in {1..10}; do
+            if uvx --no-build \
+                --default-index https://test.pypi.org/simple \
+                --index https://pypi.org/simple \
+                --index-strategy unsafe-best-match \
+                --from "lmstudio-agent-config==${VERSION}" \
+                lmstudio-agent-config --help; then
+              exit 0
+            fi
+            echo "Install failed (attempt $attempt). Waiting for TestPyPI propagation..."
+            sleep 20
+          done
+          echo "Install failed after retries."
+          exit 1
+
+  tag-release:
+    needs: upload
+    if: ${{ inputs.publish_target == 'pypi' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Create annotated tag
+        env:
+          VERSION: ${{ needs.upload.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "Tag $tag already exists, skipping."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" "$GITHUB_SHA" -m "Release $tag"
+          git push origin "$tag"
