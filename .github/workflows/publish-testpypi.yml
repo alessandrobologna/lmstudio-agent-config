@@ -123,15 +123,28 @@ jobs:
         with:
           enable-cache: false
 
-      - name: Install from TestPyPI (no build)
+      - name: Install from TestPyPI (wheels preferred)
         shell: bash
         env:
           VERSION: ${{ needs.upload.outputs.version }}
         run: |
           set -euo pipefail
           echo "Testing install for lmstudio-agent-config==$VERSION on $RUNNER_OS"
-          for attempt in {1..10}; do
+          for attempt in {1..5}; do
             if uvx --no-build \
+                --default-index https://test.pypi.org/simple \
+                --index https://pypi.org/simple \
+                --index-strategy unsafe-best-match \
+                --from "lmstudio-agent-config==${VERSION}" \
+                lmstudio-agent-config --help; then
+              exit 0
+            fi
+            echo "Install failed (attempt $attempt). Waiting for TestPyPI propagation..."
+            sleep 20
+          done
+          echo "Wheels still unavailable; retrying with source builds enabled."
+          for attempt in {1..5}; do
+            if uvx \
                 --default-index https://test.pypi.org/simple \
                 --index https://pypi.org/simple \
                 --index-strategy unsafe-best-match \
