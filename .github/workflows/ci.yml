@@ -33,7 +33,7 @@ jobs:
           enable-cache: true
 
       - name: Install deps
-        run: uv pip install -e ".[dev]"
+        run: uv sync --extra dev --frozen
 
       # QA checks (mirror these locally)
       - name: Run tests

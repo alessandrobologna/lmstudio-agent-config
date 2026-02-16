@@ -6,4 +6,3 @@ dist/
 .venv/
 .pytest_cache/
 .DS_Store
-uv.lock
